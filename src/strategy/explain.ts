@@ -293,7 +293,54 @@ export function shortHandLabel(hand: HandState): string {
   return handPhrase(hand);
 }
 
-export { ACTION_LABEL, DEALER_BUST, upName };
+const ACTION_PAST: Record<PlayerAction, string> = {
+  hit: "hit",
+  stand: "stood",
+  double: "doubled",
+  split: "split",
+  surrender: "surrendered",
+  insurance_yes: "took insurance",
+  insurance_no: "refused insurance",
+};
+
+const ACTION_SAY: Record<PlayerAction, string> = {
+  hit: "hit",
+  stand: "stand",
+  double: "double",
+  split: "split",
+  surrender: "surrender",
+  insurance_yes: "take insurance",
+  insurance_no: "refuse insurance",
+};
+
+/** "you stood, book says hit" */
+export function youBookLine(you: PlayerAction, book: PlayerAction): string {
+  return `you ${ACTION_PAST[you]}, book says ${ACTION_SAY[book]}`;
+}
+
+export type SpotKind = "hard" | "soft" | "pair" | "surrender" | "insurance";
+
+/** Compact spot name for the stats sheet, e.g. "Hard 12 vs 3". */
+export function spotLabel(
+  hand: HandState,
+  dealerUp: DealerUp | Card,
+  kind?: SpotKind,
+): string {
+  const up: DealerUp = typeof dealerUp === "number" ? dealerUp : dealerUpValue(dealerUp);
+  const vs = up === 1 ? "A" : String(up);
+  if (kind === "insurance") return "Insurance vs A";
+  const pr = pairRank(hand.cards);
+  if (kind === "pair" || (pr !== null && hand.cards.length === 2 && kind !== "surrender" && kind !== "hard" && kind !== "soft")) {
+    if (pr === 1) return `Pair of Aces vs ${vs}`;
+    if (pr === 10) return `Pair of 10s vs ${vs}`;
+    if (pr !== null) return `Pair of ${pr}s vs ${vs}`;
+  }
+  const { total, soft } = evaluate(hand.cards);
+  const hs = soft ? "Soft" : "Hard";
+  return `${hs} ${total} vs ${vs}`;
+}
+
+export { ACTION_LABEL, ACTION_PAST, ACTION_SAY, DEALER_BUST, upName };
 
 /** Used by the toast: a one-word or short phrase. */
 export function correctToastMessage(): string {

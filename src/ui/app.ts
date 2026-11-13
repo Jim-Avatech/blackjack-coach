@@ -1,10 +1,22 @@
 import { BlackjackGame, formatChips, type CoachResult, type GameSnapshot } from "../engine/game";
+import { dealerUpValue } from "../engine/cards";
 import { evaluate, isBlackjack, isBust } from "../engine/hand";
 import { outcomeLabel } from "../engine/payouts";
 import type { PlayerAction, TableRules } from "../engine/types";
-import { accuracy, emptyStats, load, recordDecision, save, type Stats } from "../store";
+import {
+  accuracy,
+  DEALER_KEYS,
+  emptyStats,
+  load,
+  recordDecision,
+  recordRound,
+  resultsCounted,
+  save,
+  type DecisionDetail,
+  type Stats,
+} from "../store";
 import { displayChart } from "../strategy/display";
-import { ACTION_LABEL, correctToastMessage } from "../strategy/explain";
+import { ACTION_LABEL, correctToastMessage, spotLabel, youBookLine } from "../strategy/explain";
 import { cardHtml, cardsHtml, resetCardAnims, THUMBS_UP_SVG } from "./cards";
 import { setSoundEnabled, sounds } from "./sounds";
 
@@ -15,6 +27,9 @@ const CHIP_VALUES = [5, 25, 100, 500];
 export function boot(root: HTMLElement): BlackjackGame {
   const persisted = load();
   let stats: Stats = persisted.stats;
+  let session: Stats = emptyStats(persisted.bankroll);
+  let statsView: "all" | "session" = "all";
+  let confirmReset = false;
   let seenHelp = persisted.seenHelp;
   let panel: Panel = seenHelp ? null : "help";
   let toast: { text: string; id: number } | null = null;
@@ -22,7 +37,9 @@ export function boot(root: HTMLElement): BlackjackGame {
 
   const game = new BlackjackGame(persisted.rules, {
     onCoach(c) {
-      stats = recordDecision(stats, c.kind, c.correct);
+      const detail = detailFromCoach(game, c);
+      stats = recordDecision(stats, c.kind, c.correct, detail);
+      session = recordDecision(session, c.kind, c.correct, detail);
       if (c.correct) {
         showToast(correctToastMessage());
         sounds.correct();
@@ -61,23 +78,30 @@ export function boot(root: HTMLElement): BlackjackGame {
     paint();
   }
 
+  function applyRound(): number {
+    const human = game.seats[game.humanSeat]!;
+    const net =
+      human.lastSettlements.reduce((a, s) => a + s.net, 0) +
+      human.lastSideNet +
+      human.lastInsuranceNet;
+    const outcomes = human.lastSettlements.map((s) => s.outcome);
+    const opts = { net, outcomes, bankroll: game.bankroll };
+    stats = recordRound(stats, opts);
+    session = recordRound(session, opts);
+    persist();
+    return net;
+  }
+
   function paint() {
     setLastLegal(game.humanLegal());
-    root.innerHTML = renderApp(game.snapshot(), stats, panel, toast, !seenHelp);
+    root.innerHTML = renderApp(game.snapshot(), stats, session, panel, toast, !seenHelp, statsView, confirmReset);
   }
 
   function afterAct(coach: CoachResult | null) {
     if (game.phase === "settling") {
-      const human = game.seats[game.humanSeat]!;
-      const net =
-        human.lastSettlements.reduce((a, s) => a + s.net, 0) +
-        human.lastSideNet +
-        human.lastInsuranceNet;
-      stats.handsPlayed += 1;
-      stats.netChips += net;
+      const net = applyRound();
       if (net > 0) sounds.win();
       else if (net < 0) sounds.lose();
-      persist();
     }
     paint();
     void coach;
@@ -105,6 +129,12 @@ export function boot(root: HTMLElement): BlackjackGame {
         break;
       case "panel":
         panel = val as Panel;
+        if (val === "stats") confirmReset = false;
+        sounds.click();
+        paint();
+        break;
+      case "stats-view":
+        statsView = val === "session" ? "session" : "all";
         sounds.click();
         paint();
         break;
@@ -139,16 +169,7 @@ export function boot(root: HTMLElement): BlackjackGame {
       }
       case "dismiss":
         game.dismissExplanation();
-        if (game.phase === "settling") {
-          const human = game.seats[game.humanSeat]!;
-          const net =
-            human.lastSettlements.reduce((a, s) => a + s.net, 0) +
-            human.lastSideNet +
-            human.lastInsuranceNet;
-          stats.handsPlayed += 1;
-          stats.netChips += net;
-          persist();
-        }
+        if (game.phase === "settling") applyRound();
         paint();
         break;
       case "side":
@@ -180,8 +201,20 @@ export function boot(root: HTMLElement): BlackjackGame {
         paint();
         break;
       case "reset-stats":
+        confirmReset = true;
+        sounds.click();
+        paint();
+        break;
+      case "reset-stats-cancel":
+        confirmReset = false;
+        paint();
+        break;
+      case "reset-stats-confirm":
         stats = emptyStats(game.bankroll);
+        session = emptyStats(game.bankroll);
+        confirmReset = false;
         persist();
+        sounds.click();
         paint();
         break;
       default:
@@ -246,6 +279,9 @@ export function boot(root: HTMLElement): BlackjackGame {
     get stats() {
       return stats;
     },
+    get session() {
+      return session;
+    },
     dealScenario(specs: string, opts?: { bet?: number }) {
       const { parseCards } = requireCards();
       if (game.phase === "settling") game.nextRound();
@@ -290,9 +326,12 @@ function requireModule() {
 function renderApp(
   snap: GameSnapshot,
   stats: Stats,
+  session: Stats,
   panel: Panel,
   toast: { text: string; id: number } | null,
   firstHelp: boolean,
+  statsView: "all" | "session",
+  confirmReset: boolean,
 ): string {
   return `
     ${renderTop(snap, stats)}
@@ -302,16 +341,25 @@ function renderApp(
     </div>
     ${renderRail(snap)}
     ${snap.phase === "explaining" && snap.coach && !snap.coach.correct ? renderExplain(snap.coach) : ""}
-    ${panel ? renderPanel(panel, snap, stats, firstHelp) : ""}
+    ${panel ? renderPanel(panel, snap, stats, session, firstHelp, statsView, confirmReset) : ""}
   `;
 }
 
 function renderTop(snap: GameSnapshot, stats: Stats): string {
   const acc = accuracy(stats);
+  const pillMain =
+    acc === null ? "STATS" : `${acc}%${stats.streak ? "  " + stats.streak + " STRK" : ""}`;
+  const pillAria =
+    acc === null
+      ? "Open stats"
+      : `Open stats: ${acc} percent accuracy, streak ${stats.streak}`;
   return `<header class="topbar">
     <div class="brand">BJ<br>COACH</div>
     <div class="stat-pill">CHIP <em>${formatChips(snap.bankroll)}</em></div>
-    <div class="stat-pill">${acc === null ? "—" : acc + "%"}${stats.streak ? "  " + stats.streak + " STRK" : ""}</div>
+    <button type="button" class="stat-pill is-tappable" data-act="panel" data-val="stats" aria-label="${esc(pillAria)}">
+      <span class="pill-main">${pillMain}</span>
+      <span class="pill-chevron" aria-hidden="true">▾</span>
+    </button>
     <button class="icon-btn" data-act="menu" aria-label="Menu">☰</button>
   </header>`;
 }
@@ -547,11 +595,19 @@ function renderExplain(c: CoachResult): string {
   </div></div>`;
 }
 
-function renderPanel(panel: Panel, snap: GameSnapshot, stats: Stats, firstHelp: boolean): string {
+function renderPanel(
+  panel: Panel,
+  snap: GameSnapshot,
+  stats: Stats,
+  session: Stats,
+  firstHelp: boolean,
+  statsView: "all" | "session",
+  confirmReset: boolean,
+): string {
   if (panel === "menu") return panelShell("MENU", renderMenu());
   if (panel === "settings") return panelShell("TABLE RULES", renderSettings(snap));
   if (panel === "chart") return panelShell("STRATEGY CHART", renderChart(snap));
-  if (panel === "stats") return panelShell("YOUR STATS", renderStats(stats));
+  if (panel === "stats") return panelShell("YOUR STATS", renderStats(stats, session, statsView, confirmReset));
   if (panel === "help") return panelShell(firstHelp ? "WELCOME" : "HOW IT WORKS", renderHelp(firstHelp));
   return "";
 }
@@ -710,32 +766,172 @@ function renderChart(snap: GameSnapshot): string {
   `;
 }
 
-function renderStats(stats: Stats): string {
-  const acc = accuracy(stats);
-  const kind = (k: keyof Stats["byKind"], label: string) => {
-    const s = stats.byKind[k];
-    const a = accuracy(s);
-    return `<div class="stat-card"><div class="l">${label}</div><div class="n">${a === null ? "—" : a + "%"}</div><div class="l">${s.correct}/${s.decisions}</div></div>`;
-  };
+function kindRow(label: string, s: { decisions: number; correct: number }): string {
+  const a = accuracy(s);
+  const pct = a === null ? 0 : a;
+  const num = a === null ? "—" : `${s.correct} of ${s.decisions} · ${a}%`;
+  return `<div class="spot-row">
+    <div class="spot-lab">${label}</div>
+    <div class="spot-bar" aria-hidden="true"><i style="width:${pct}%"></i></div>
+    <div class="spot-num">${num}</div>
+  </div>`;
+}
+
+function renderStats(
+  all: Stats,
+  session: Stats,
+  view: "all" | "session",
+  confirmReset: boolean,
+): string {
+  const s = view === "session" ? session : all;
+  const acc = accuracy(s);
+  const accLabel = acc === null ? "—" : `${acc}%`;
+  const counted = resultsCounted(s.results);
+  const legacyResults = s.handsPlayed > 0 && counted === 0;
+  const dealerTracked = DEALER_KEYS.reduce((n, k) => n + s.byDealer[k].decisions, 0);
+  const legacyDealer = s.decisions > 0 && dealerTracked === 0;
+
+  const dealerCells = DEALER_KEYS.map((k) => {
+    const d = s.byDealer[k];
+    const a = accuracy(d);
+    return `<div class="dealer-cell ${a === null ? "is-empty" : ""}">
+      <div class="dk">${k}</div>
+      <div class="dp">${a === null ? "—" : a + "%"}</div>
+      <div class="dc">${d.decisions ? `${d.correct}/${d.decisions}` : ""}</div>
+    </div>`;
+  }).join("");
+
+  const mistakes = s.mistakes
+    .map(
+      (m) => `<details class="mistake">
+        <summary>
+          <div class="spot">${esc(m.spot)}</div>
+          <div class="play">${esc(youBookLine(m.you, m.book))}</div>
+        </summary>
+        <p class="why">${esc(m.why || "The book play is the one the strategy chart gives for this spot.")}</p>
+      </details>`,
+    )
+    .join("");
+
+  const r = s.results;
+  const extras = [
+    r.blackjacks ? `${r.blackjacks} blackjack${r.blackjacks === 1 ? "" : "s"}` : "",
+    r.busts ? `${r.busts} bust${r.busts === 1 ? "" : "s"}` : "",
+    r.surrenders ? `${r.surrenders} surrender${r.surrenders === 1 ? "" : "s"}` : "",
+    r.dealerBusts ? `${r.dealerBusts} dealer bust${r.dealerBusts === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+
+  const resetBlock = confirmReset
+    ? `<div class="reset-confirm">
+        <p>This clears accuracy, streaks, mistakes, and results — all-time and this session. It does not change your bankroll or table rules.</p>
+        <div class="actions-row">
+          <button type="button" class="btn btn-ghost" data-act="reset-stats-cancel">CANCEL</button>
+          <button type="button" class="btn btn-no" data-act="reset-stats-confirm">YES, RESET</button>
+        </div>
+      </div>`
+    : `<div class="actions-row one">
+        <button type="button" class="btn btn-ghost" data-act="reset-stats">RESET STATS</button>
+      </div>`;
+
+  const emptySession = view === "session" && s.decisions === 0 && s.handsPlayed === 0;
+
   return `
-    <div class="stats-grid">
-      <div class="stat-card"><div class="l">Accuracy</div><div class="n">${acc === null ? "—" : acc + "%"}</div><div class="l">${stats.correct} of ${stats.decisions}</div></div>
-      <div class="stat-card"><div class="l">Streak</div><div class="n">${stats.streak}</div><div class="l">best ${stats.bestStreak}</div></div>
-      <div class="stat-card"><div class="l">Hands</div><div class="n">${stats.handsPlayed}</div></div>
-      <div class="stat-card"><div class="l">Net chips</div><div class="n">${stats.netChips >= 0 ? "+" : ""}${formatChips(stats.netChips)}</div><div class="l">high ${formatChips(stats.highBankroll)}</div></div>
+    <div class="stats-tabs" role="tablist" aria-label="Stats period">
+      <button type="button" class="stats-tab ${view === "all" ? "is-on" : ""}" role="tab" aria-selected="${view === "all"}" data-act="stats-view" data-val="all">ALL-TIME</button>
+      <button type="button" class="stats-tab ${view === "session" ? "is-on" : ""}" role="tab" aria-selected="${view === "session"}" data-act="stats-view" data-val="session">THIS SESSION</button>
     </div>
-    <h3 style="font-family:'Press Start 2P',monospace;font-size:8px;color:var(--gold);margin:18px 0 8px">BY SPOT</h3>
-    <div class="stats-grid">
-      ${kind("hard", "Hard totals")}
-      ${kind("soft", "Soft totals")}
-      ${kind("pair", "Pairs")}
-      ${kind("surrender", "Surrender")}
-      ${kind("insurance", "Insurance")}
-    </div>
-    <div class="actions-row one" style="margin-top:18px">
-      <button class="btn btn-ghost" data-act="reset-stats">RESET STATS</button>
-    </div>
+
+    ${emptySession ? `<p class="stats-blurb">Nothing recorded this sitting yet. Play a hand and the numbers will show up here. All-time totals are still on the other tab.</p>` : ""}
+
+    <section class="stats-sec">
+      <div class="stat-card is-hero">
+        <div class="l">Accuracy</div>
+        <div class="n">${accLabel}</div>
+        <div class="l is-emph">${s.correct} of ${s.decisions} decisions</div>
+        <p class="stats-blurb">This is how often you made the book play — not how often you won the hand. A decision is every choice you make: hit, stand, double, split, surrender, or insurance. One hand can have more than one decision (a hit, then a stand).</p>
+      </div>
+    </section>
+
+    <section class="stats-sec">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="l">Current streak</div>
+          <div class="n">${s.streak}</div>
+          <div class="l">consecutive correct decisions</div>
+        </div>
+        <div class="stat-card">
+          <div class="l">Best streak</div>
+          <div class="n">${s.bestStreak}</div>
+          <div class="l">${view === "session" ? "this session" : "all-time"}</div>
+        </div>
+      </div>
+      <p class="stats-blurb">A miss resets the current streak to 0. The best streak is the longest run of correct decisions ${view === "session" ? "this sitting" : "you've had"}.</p>
+    </section>
+
+    <section class="stats-sec">
+      <h3>By spot</h3>
+      ${kindRow("Hard totals", s.byKind.hard)}
+      ${kindRow("Soft totals", s.byKind.soft)}
+      ${kindRow("Pairs", s.byKind.pair)}
+      ${kindRow("Surrender", s.byKind.surrender)}
+      ${kindRow("Insurance", s.byKind.insurance)}
+    </section>
+
+    <section class="stats-sec">
+      <h3>By dealer upcard</h3>
+      ${legacyDealer ? `<p class="stats-blurb">Dealer-up counts start from when this screen was added. Your accuracy and streaks above are complete.</p>` : ""}
+      <div class="dealer-grid">${dealerCells}</div>
+    </section>
+
+    <section class="stats-sec">
+      <h3>Recent mistakes</h3>
+      ${
+        mistakes
+          ? `<p class="stats-blurb">The last ${s.mistakes.length} spot${s.mistakes.length === 1 ? "" : "s"} where you didn't take the book play. Tap one to see why.</p>${mistakes}`
+          : `<p class="stats-blurb">No missed spots ${view === "session" ? "this sitting" : "yet"}. When you leave the book, the spot will land here with the reason.</p>`
+      }
+    </section>
+
+    <section class="stats-sec">
+      <h3>Results</h3>
+      <p class="stats-blurb">How the hands paid out — separate from accuracy. You can play every spot by the book and still lose a few.</p>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="l">Hands played</div>
+          <div class="n">${s.handsPlayed}</div>
+          <div class="l">rounds dealt</div>
+        </div>
+        <div class="stat-card">
+          <div class="l">Net chips</div>
+          <div class="n">${s.netChips >= 0 ? "+" : ""}${formatChips(s.netChips)}</div>
+          <div class="l">high ${formatChips(s.highBankroll)}</div>
+        </div>
+      </div>
+      ${
+        legacyResults
+          ? `<p class="stats-blurb">Win/loss tracking starts with this update. Earlier rounds are already in hands played and net chips.</p>`
+          : `<p class="results-line"><strong>${r.wins}</strong> win${r.wins === 1 ? "" : "s"} · <strong>${r.losses}</strong> loss${r.losses === 1 ? "" : "es"} · <strong>${r.pushes}</strong> push${r.pushes === 1 ? "" : "es"}</p>
+             <p class="stats-blurb">Wins, losses, and pushes count each of your hands, including after a split.${extras.length ? " Including " + extras.join(", ") + "." : ""}</p>`
+      }
+    </section>
+
+    ${resetBlock}
   `;
+}
+
+function detailFromCoach(game: BlackjackGame, c: CoachResult): DecisionDetail | undefined {
+  const up = game.dealer.cards[0];
+  if (!up) return undefined;
+  const seat = game.seats[game.humanSeat];
+  const hand = seat?.hands[game.activeHand] ?? seat?.hands[0];
+  if (!hand) return { spot: c.kind === "insurance" ? "Insurance vs A" : "Unknown spot", you: c.actual, book: c.book.action, why: c.body, dealerUp: dealerUpValue(up) };
+  return {
+    spot: spotLabel(hand, up, c.kind),
+    you: c.actual,
+    book: c.book.action,
+    why: c.body,
+    dealerUp: dealerUpValue(up),
+  };
 }
 
 function renderHelp(first: boolean): string {
@@ -743,6 +939,7 @@ function renderHelp(first: boolean): string {
     ${first ? "<p>Welcome to Blackjack Coach — a quick practice table with a strategy coach looking over your shoulder.</p>" : ""}
     <p>Play regular blackjack. After every move, the coach checks basic strategy for <strong>your table rules</strong> — decks, soft 17, double after split, surrender, the works. The chart in the menu updates to match.</p>
     <p>If you play it by the book, you get a little thumbs-up and the hand keeps going, whether you win or lose. If you don't, the game pauses and tells you what the book says, and why, so you'll have it the next time that spot comes up.</p>
+    <p>Tap the percent and streak in the top bar to see exactly how that's counted — every hit, stand, double, split, surrender, and insurance choice is a decision, and accuracy is about playing by the book, not winning.</p>
     <p>Change the table in Settings. Turn on Drill mode to practice only the tricky hands. Other seats, if you add them, are bots that play perfect basic strategy and eat cards from the same shoe.</p>
     <p>Insurance is never the book play. 5s and 10s are never split.</p>
     <div class="actions-row one" style="margin-top:16px">

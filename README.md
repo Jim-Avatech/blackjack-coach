@@ -31,7 +31,7 @@ Insurance is never the book play.
 - 1–5 seats; other seats are bots that play basic strategy and take cards from the same shoe
 - Drill mode: deals only tricky spots (12 vs 2–3, soft 18, 16 vs 10, pair splits, and so on)
 
-Settings, bankroll, and accuracy stats (streak, percent correct, breakdown by hard / soft / pair / surrender / insurance) are saved in your browser.
+Settings, bankroll, and accuracy stats are saved in your browser. Tap the percent and streak in the top bar to open a sheet that explains how accuracy is counted (every hit, stand, double, split, surrender, and insurance choice), shows streaks, a breakdown by spot and dealer upcard, recent mistakes, and win/loss results — accuracy is about playing by the book, not winning.
 
 ## Rules of the game
 
