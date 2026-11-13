@@ -153,4 +153,4 @@
       <button class="btn btn-deal" data-act="close">${t?"LET'S PLAY":"CLOSE"}</button>
     </div>
   </div>`}function m(t){return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}const Me=document.getElementById("app");if(!Me)throw new Error("#app missing");Et(Me);"serviceWorker"in navigator&&window.addEventListener("load",()=>{navigator.serviceWorker.register("/blackjack-coach/sw.js").catch(()=>{})});
-//# sourceMappingURL=index-B6DVUkJ0.js.map
+//# sourceMappingURL=index-CFk6APc7.js.map
