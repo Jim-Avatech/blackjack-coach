@@ -121,7 +121,8 @@ export function cardHtml(card: Card, opts: { hidden?: boolean; small?: boolean; 
 }
 
 export function cardsHtml(cards: { card: Card; hidden?: boolean }[], small = false): string {
-  return `<div class="bj-cards">${cards
+  const n = Math.max(1, cards.length);
+  return `<div class="bj-cards" data-n="${n}" style="--n: ${n}">${cards
     .map((c, i) => cardHtml(c.card, { hidden: c.hidden, small, delay: i * 70 }))
     .join("")}</div>`;
 }

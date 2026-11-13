@@ -206,14 +206,18 @@ select {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 0;
+  overflow: visible;
 }
 .dealer-area {
   margin-top: 2px;
 }
 .player-area {
   margin-top: auto;
-  padding-bottom: 4px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 4px 8px;
+  overflow: visible;
 }
 .seat-label {
   font-family: "Press Start 2P", monospace;
@@ -287,52 +291,73 @@ select {
 
 .hands-row {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   justify-content: center;
   align-items: flex-end;
+  width: 100%;
   max-width: 100%;
-  overflow-x: auto;
-  padding: 4px 2px 8px;
-}
-.one-hand.is-active {
-  outline: 3px solid var(--gold);
-  outline-offset: 4px;
-  border-radius: 2px;
+  /* Must stay visible: overflow-x:auto computes overflow-y to auto too,
+     which clips the deal-in rotation (transforms don't grow the scroll box). */
+  overflow: visible;
+  padding: 4px 0 8px;
+  box-sizing: border-box;
 }
 .one-hand {
   display: flex;
   flex-direction: column;
   align-items: center;
+  overflow: visible;
+}
+.one-hand.is-active .hand-total {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold);
 }
 
 /* ---------- cards ---------- */
 .bj-cards {
   display: flex;
+  justify-content: center;
   align-items: flex-end;
+  overflow: visible;
+  /* --n is set on the element. Overlap grows with the hand so a 5–7
+     card fan stays centered and inside the phone width. */
+  --card-w: 72px;
+  --n: 2;
+  --max-hand: 252px;
+  --stack: min(56px, max(18px, calc((var(--max-hand) - var(--card-w)) / max(1, (var(--n) - 1)))));
 }
 .bj-card {
-  width: 72px;
+  --cw: var(--card-w);
+  width: var(--cw);
   height: 100px;
-  margin-left: -22px;
+  flex: 0 0 var(--cw);
+  margin-left: calc(var(--stack) - var(--cw));
   position: relative;
-  animation: deal-in 0.22s steps(6) both;
   filter: drop-shadow(2px 3px 0 #0006);
+  /* Default rest state — after the animation this is what you see. */
+  transform: none;
+  opacity: 1;
+}
+.bj-card.is-dealt {
+  /* Come from just above, fully opaque, small tilt. No rightward travel
+     (that used to hang off the hand and get clipped). */
+  animation: deal-in 0.24s steps(5) both;
 }
 .bj-cards .bj-card:first-child {
   margin-left: 0;
 }
 .bj-card.is-small {
-  width: 50px;
+  --cw: 50px;
   height: 70px;
-  margin-left: -16px;
 }
 @keyframes deal-in {
   from {
-    transform: translate(80px, -90px) rotate(12deg);
-    opacity: 0;
+    transform: translateY(-28px) rotate(8deg);
+    opacity: 1;
   }
   to {
-    transform: translate(0, 0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
     opacity: 1;
   }
 }
@@ -989,13 +1014,15 @@ select {
 }
 
 @media (min-height: 780px) {
+  .bj-cards {
+    --card-w: 80px;
+    --max-hand: 268px;
+  }
   .bj-card {
-    width: 80px;
     height: 112px;
-    margin-left: -24px;
   }
   .bj-card.is-small {
-    width: 56px;
+    --cw: 56px;
     height: 78px;
   }
 }

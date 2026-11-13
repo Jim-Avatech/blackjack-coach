@@ -1,5 +1,5 @@
 /* Simple app-shell cache. Bump CACHE when shipping a new build. */
-const CACHE = "bj-coach-v1";
+const CACHE = "bj-coach-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
