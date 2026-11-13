@@ -1,0 +1,11 @@
+This project bundles three SIL Open Font License fonts:
+
+- Press Start 2P, by Cody "CodeMan38" Boisclair
+  https://github.com/googlefonts/press-start-2p
+- Pixelify Sans, by Stefano KoT Stefano
+  https://github.com/eifetx/Pixelify-Sans
+- VT323, by Peter Hull
+  https://github.com/phoikoi/VT323
+
+Each is licensed under the SIL Open Font License, Version 1.1.
+https://scripts.sil.org/OFL
