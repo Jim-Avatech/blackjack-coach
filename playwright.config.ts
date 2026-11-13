@@ -13,6 +13,10 @@ export default defineConfig({
     hasTouch: true,
     userAgent: devices["iPhone 13"].userAgent,
   },
+  projects: [
+    { name: "chromium", use: { browserName: "chromium" } },
+    { name: "webkit", use: { browserName: "webkit" }, testMatch: /clip-regression/ },
+  ],
   webServer: {
     command: "npx vite preview --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173/blackjack-coach/",

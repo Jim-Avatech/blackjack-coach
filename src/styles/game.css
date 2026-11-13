@@ -85,6 +85,7 @@ select {
   flex-direction: column;
   overflow: hidden;
   padding-top: var(--safe-t);
+  padding-bottom: var(--safe-b);
   background: #0a0806;
 }
 
@@ -159,7 +160,13 @@ select {
   flex-direction: column;
   align-items: center;
   padding: 6px 8px 8px;
-  overflow: hidden;
+  /* Visible on purpose: overflow:hidden here clipped the player's
+     deal-in transform on iOS (Safari also treats overflow:visible as
+     auto on some flex items). #app still clips to the viewport. */
+  overflow: visible;
+  contain: none;
+  clip-path: none;
+  -webkit-clip-path: none;
 }
 .table::before {
   content: "";
@@ -203,10 +210,14 @@ select {
 .dealer-area,
 .player-area {
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  /* Block, not flex: Safari has historically computed overflow:visible
+     as auto on flex items, which clips a rotated deal-in card. */
+  display: block;
+  text-align: center;
   overflow: visible;
+  contain: none;
+  clip-path: none;
+  -webkit-clip-path: none;
 }
 .dealer-area {
   margin-top: 2px;
@@ -216,15 +227,22 @@ select {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 8px 4px 8px;
+  padding: 8px 8px 12px;
   overflow: visible;
 }
 .seat-label {
   font-family: "Press Start 2P", monospace;
   font-size: 7px;
   color: var(--gold);
-  margin-bottom: 4px;
+  margin-bottom: 0;
   text-shadow: 1px 1px 0 #000;
+}
+.hand-total,
+.result-tag {
+  display: inline-block;
+}
+.hand-bet {
+  display: block;
 }
 .hand-total {
   font-family: "Press Start 2P", monospace;
@@ -270,18 +288,19 @@ select {
 }
 
 .bots-row {
-  display: flex;
-  justify-content: center;
-  gap: 16px;
+  display: block;
+  text-align: center;
   width: 100%;
   z-index: 1;
   margin: 8px 0;
-  flex: 0 0 auto;
+}
+.bots-row .bot-seat {
+  margin: 0 8px;
 }
 .bot-seat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: inline-block;
+  text-align: center;
+  vertical-align: bottom;
   opacity: 0.92;
 }
 .bot-seat .seat-label {
@@ -290,24 +309,26 @@ select {
 }
 
 .hands-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  justify-content: center;
-  align-items: flex-end;
+  display: block;
+  text-align: center;
   width: 100%;
   max-width: 100%;
-  /* Must stay visible: overflow-x:auto computes overflow-y to auto too,
-     which clips the deal-in rotation (transforms don't grow the scroll box). */
   overflow: visible;
+  contain: none;
+  clip-path: none;
+  -webkit-clip-path: none;
   padding: 4px 0 8px;
   box-sizing: border-box;
 }
 .one-hand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: inline-block;
+  vertical-align: bottom;
+  text-align: center;
   overflow: visible;
+  contain: none;
+  clip-path: none;
+  -webkit-clip-path: none;
+  margin: 0 8px 8px;
 }
 .one-hand.is-active .hand-total {
   border-color: var(--gold);
@@ -320,6 +341,14 @@ select {
   justify-content: center;
   align-items: flex-end;
   overflow: visible;
+  contain: none;
+  clip-path: none;
+  -webkit-clip-path: none;
+  isolation: auto;
+  /* Padding is the paint box for the deal-in transform. Even if iOS
+     turns a parent into a scrollport, the tilted card stays inside. */
+  padding: 24px 16px 8px;
+  box-sizing: border-box;
   /* --n is set on the element. Overlap grows with the hand so a 5–7
      card fan stays centered and inside the phone width. */
   --card-w: 72px;
@@ -334,14 +363,18 @@ select {
   flex: 0 0 var(--cw);
   margin-left: calc(var(--stack) - var(--cw));
   position: relative;
-  filter: drop-shadow(2px 3px 0 #0006);
+  /* Do NOT use filter here. iOS Safari clips filter+transform
+     to the element's pre-transform box, which crops a tilted deal-in. */
+  filter: none;
+  -webkit-filter: none;
   /* Default rest state — after the animation this is what you see. */
   transform: none;
   opacity: 1;
 }
 .bj-card.is-dealt {
-  /* Come from just above, fully opaque, small tilt. No rightward travel
-     (that used to hang off the hand and get clipped). */
+  /* From just above, fully opaque, small tilt. No rightward travel.
+     Amplitude is smaller than the .bj-cards padding so a clipper
+     around this box cannot crop the card. */
   animation: deal-in 0.24s steps(5) both;
 }
 .bj-cards .bj-card:first-child {
@@ -353,7 +386,7 @@ select {
 }
 @keyframes deal-in {
   from {
-    transform: translateY(-28px) rotate(8deg);
+    transform: translateY(-16px) rotate(6deg);
     opacity: 1;
   }
   to {
@@ -369,13 +402,15 @@ select {
   background: var(--cream);
   image-rendering: pixelated;
   position: relative;
-  box-shadow: inset -3px -3px 0 #0002, inset 3px 3px 0 #fff8;
+  /* Outer shadow lives here (not a filter on .bj-card) so a deal-in
+     transform cannot get clipped by Safari's filter region. */
+  box-shadow: 2px 3px 0 #0006, inset -3px -3px 0 #0002, inset 3px 3px 0 #fff8;
 }
 .bj-card-back {
   background:
     repeating-linear-gradient(45deg, #1e2a66 0 4px, #162050 4px 8px),
     #1e2a66;
-  box-shadow: inset 0 0 0 5px #1e2a66, inset 0 0 0 7px var(--gold-dk);
+  box-shadow: 2px 3px 0 #0006, inset 0 0 0 5px #1e2a66, inset 0 0 0 7px var(--gold-dk);
 }
 .bj-card-face {
   display: flex;
